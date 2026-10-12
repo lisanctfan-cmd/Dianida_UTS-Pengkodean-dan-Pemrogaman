@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modul Voucher Entri Transaksi Kas Keluar</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone for JSX compilation in browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body class="min-h-screen p-4 sm:p-6 lg:p-8">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const MOCK_COA = [
+      { code: '11100', name: 'Kas di Bank BCA', type: 'Asset' },
+      { code: '11200', name: 'Kas Kecil (Petty Cash)', type: 'Asset' },
+      { code: '21100', name: 'Hutang Usaha (Accounts Payable)', type: 'Liability' },
+      { code: '51100', name: 'Beban Gaji & Tunjangan', type: 'Expense' },
+      { code: '51200', name: 'Beban Sewa Kantor', type: 'Expense' },
+      { code: '51300', name: 'Beban Listrik, Air & Telepon', type: 'Expense' },
+      { code: '51400', name: 'Beban Pemeliharaan & Perbaikan', type: 'Expense' },
+      { code: '52100', name: 'Beban Konsumsi & Rapat', type: 'Expense' },
+      { code: '61100', name: 'Biaya Administrasi Bank', type: 'Expense' }
+    ];
+
+    const INITIAL_VOUCHER_STATE = {
+      voucherNo: 'VKK-2026-0042',
+      date: new Date().toISOString().split('T')[0],
+      description: 'Pembayaran beban operasional kantor bulan Oktober 2026',
+      creator: 'Budi Santoso (Staff Akuntansi)',
+      status: 'DRAFT'
+    };
+
+    const INITIAL_ROWS = [
+      { id: 1, accountCode: '51300', accountName: 'Beban Listrik, Air & Telepon', memo: 'Pembayaran listrik PLN kantor pusat', debit: 2500000, credit: 0 },
+      { id: 2, accountCode: '52100', accountName: 'Beban Konsumsi & Rapat', memo: 'Konsumsi rapat koordinasi bulanan', debit: 750000, credit: 0 },
+      { id: 3, accountCode: '11100', accountName: 'Kas di Bank BCA', memo: 'Pencairan kas keluar untuk operasional', debit: 0, credit: 3250000 }
+    ];
+
+    function App() {
+      const [voucher, setVoucher] = useState(INITIAL_VOUCHER_STATE);
+      const [rows, setRows] = useState(INITIAL_ROWS);
+      const [auditLogs, setAuditLogs] = useState([
+        { id: 1, action: 'CREATE', user: 'Budi Santoso', timestamp: '2026-10-12 08:30:15', note: 'Voucher dibuat sebagai Draft' }
+      ]);
+      const [notification, setNotification] = useState(null);
+      const [activeTab, setActiveTab] = useState('entry');
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      const totalDebit = rows.reduce((sum, r) => sum + (Number(r.debit) || 0), 0);
+      const totalCredit = rows.reduce((sum, r) => sum + (Number(r.credit) || 0), 0);
+      const diff = Math.abs(totalDebit - totalCredit);
+      
+      const isHeaderValid = voucher.voucherNo.trim() !== '' && voucher.date !== '' && voucher.description.trim() !== '' && voucher.creator.trim() !== '';
+      const hasRows = rows.length > 0;
+      const areRowsComplete = rows.every(r => r.accountCode !== '' && (Number(r.debit) > 0 || Number(r.credit) > 0));
+      const isBalanced = totalDebit > 0 && totalCredit > 0 && diff < 0.01;
+      const canSubmit = isHeaderValid && hasRows && areRowsComplete && isBalanced && voucher.status === 'DRAFT';
+
+      const showNotification = (message, type = 'success') => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 4000);
+      };
+
+      const handleAddRow = () => {
+        const newRow = { id: Date.now(), accountCode: '', accountName: '', memo: '', debit: 0, credit: 0 };
+        setRows([...rows, newRow]);
+      };
+
+      const handleRemoveRow = (id) => {
+        if (rows.length <= 1) {
+          showNotification('Jurnal minimal harus memiliki 1 baris.', 'error');
+          return;
+        }
+        setRows(rows.filter(r => r.id !== id));
+      };
+
+      const handleRowChange = (id, field, value) => {
+        setRows(rows.map(r => {
+          if (r.id === id) {
+            const updated = { ...r, [field]: value };
+            if (field === 'accountCode') {
+              const matched = MOCK_COA.find(c => c.code === value);
+              updated.accountName = matched ? matched.name : '';
+            }
+            if (field === 'debit' && Number(value) > 0) {
+              updated.credit = 0;
+            } else if (field === 'credit' && Number(value) > 0) {
+              updated.debit = 0;
+            }
+            return updated;
+          }
+          return r;
+        }));
+      };
+
+      const handleReset = () => {
+        setVoucher(INITIAL_VOUCHER_STATE);
+        setRows(INITIAL_ROWS);
+        showNotification('Formulir berhasil direset ke data demo.', 'success');
+      };
+
+      const handleSaveDraft = () => {
+        setVoucher(prev => ({ ...prev, status: 'DRAFT' }));
+        setAuditLogs(prev => [
+          { id: Date.now(), action: 'SAVE DRAFT', user: voucher.creator, timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19), note: 'Perubahan disimpan sebagai Draft' },
+          ...prev
+        ]);
+        showNotification('Voucher berhasil disimpan sebagai Draft.', 'success');
+      };
+
+      const handleSubmitPosted = () => {
+        if (!canSubmit) return;
+        setVoucher(prev => ({ ...prev, status: 'POSTED' }));
+        setAuditLogs(prev => [
+          { id: Date.now(), action: 'POSTED', user: voucher.creator, timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19), note: 'Voucher diverifikasi & diposting ke Buku Besar' },
+          ...prev
+        ]);
+        showNotification('Voucher Kas Keluar berhasil diposting ke sistem akuntansi!', 'success');
+      };
+
+      const formatCurrency = (val) => {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+      };
+
+      return (
+        <div className="max-w-7xl mx-auto space-y-6">
+          {notification && (
+            <div className={`p-4 rounded-xl shadow-lg border flex items-center justify-between transition-all duration-300 ${
+              notification.type === 'error' ? 'bg-rose-950/80 border-rose-800 text-rose-200' : 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
+            }`}>
+              <div className="flex items-center space-x-3">
+                <span className="font-medium">{notification.message}</span>
+              </div>
+              <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-200">✕</button>
+            </div>
+          )}
+
+          <header className="bg-slate-800/95 backdrop-blur border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-indigo-600/20 border border-indigo-500/30 rounded-xl text-indigo-400">
+                <i data-lucide="file-text" className="w-8 h-8"></i>
+              </div>
+              <div>
+                <div className="flex items-center space-x-3">
+                  <h1 className="text-2xl font-bold tracking-tight text-white">Voucher Entri Transaksi Kas Keluar</h1>
+                  <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                    voucher.status === 'POSTED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  }`}>
+                    {voucher.status}
+                  </span>
+                </div>
+                <p className="text-slate-400 text-sm mt-1">Modul Akuntansi Perusahaan • Pencatatan Pengeluaran Kas & Jurnal Otomatis</p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3 w-full md:w-auto">
+              <button
+                onClick={() => setActiveTab('entry')}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  activeTab === 'entry' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-slate-700/60 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                Entri Voucher
+              </button>
+              <button
+                onClick={() => setActiveTab('audit')}
+                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center space-x-2 transition-all ${
+                  activeTab === 'audit' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-slate-700/60 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <span>Jejak Audit ({auditLogs.length})</span>
+              </button>
+            </div>
+          </header>
+
+          {activeTab === 'entry' ? (
+            <div className="space-y-6">
+              <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
+                <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center space-x-2">
+                  <span>1. Informasi Header Voucher</span>
+                </h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Nomor Voucher</label>
+                    <input
+                      type="text"
+                      value={voucher.voucherNo}
+                      disabled={voucher.status === 'POSTED'}
+                      onChange={(e) => setVoucher({ ...voucher, voucherNo: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Tanggal Transaksi</label>
+                    <input
+                      type="date"
+                      value={voucher.date}
+                      disabled={voucher.status === 'POSTED'}
+                      onChange={(e) => setVoucher({ ...voucher, date: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Nama Pembuat</label>
+                    <input
+                      type="text"
+                      value={voucher.creator}
+                      disabled={voucher.status === 'POSTED'}
+                      onChange={(e) => setVoucher({ ...voucher, creator: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 lg:col-span-4">
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Deskripsi / Keterangan Umum</label>
+                    <input
+                      type="text"
+                      value={voucher.description}
+                      disabled={voucher.status === 'POSTED'}
+                      onChange={(e) => setVoucher({ ...voucher, description: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-200">2. Tabel Jurnal Dinamis (Debit & Kredit)</h2>
+                    <p className="text-slate-400 text-xs mt-1">Tambahkan baris akun sesuai transaksi kas keluar. Pastikan total debit sama dengan total kredit.</p>
+                  </div>
+
+                  {voucher.status === 'DRAFT' && (
+                    <button
+                      onClick={handleAddRow}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium shadow-md transition-all cursor-pointer"
+                    >
+                      + Tambah Baris Akun
+                    </button>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-700/80">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-900/90 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-700">
+                        <th className="py-3 px-4 w-40">Kode Akun</th>
+                        <th className="py-3 px-4 min-w-[200px]">Nama Akun</th>
+                        <th className="py-3 px-4 min-w-[220px]">Keterangan Baris</th>
+                        <th className="py-3 px-4 w-44 text-right">Debit (IDR)</th>
+                        <th className="py-3 px-4 w-44 text-right">Kredit (IDR)</th>
+                        <th className="py-3 px-4 w-16 text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/60 text-sm">
+                      {rows.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-750/50 transition-colors">
+                          <td className="py-3 px-4">
+                            <select
+                              value={row.accountCode}
+                              disabled={voucher.status === 'POSTED'}
+                              onChange={(e) => handleRowChange(row.id, 'accountCode', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs focus:outline-none disabled:opacity-50"
+                            >
+                              <option value="">-- Pilih Akun --</option>
+                              {MOCK_COA.map(acc => (
+                                <option key={acc.code} value={acc.code}>{acc.code} - {acc.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-slate-300">
+                            {row.accountName || <span className="text-slate-500 italic">Pilih kode akun...</span>}
+                          </td>
+                          <td className="py-3 px-4">
+                            <input
+                              type="text"
+                              value={row.memo}
+                              disabled={voucher.status === 'POSTED'}
+                              onChange={(e) => handleRowChange(row.id, 'memo', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs disabled:opacity-50"
+                            />
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              value={row.debit === 0 ? '' : row.debit}
+                              disabled={voucher.status === 'POSTED'}
+                              onChange={(e) => handleRowChange(row.id, 'debit', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs text-right disabled:opacity-50"
+                            />
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              value={row.credit === 0 ? '' : row.credit}
+                              disabled={voucher.status === 'POSTED'}
+                              onChange={(e) => handleRowChange(row.id, 'credit', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs text-right disabled:opacity-50"
+                            />
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {voucher.status === 'DRAFT' && (
+                              <button
+                                onClick={() => handleRemoveRow(row.id)}
+                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-900 font-semibold border-t-2 border-slate-700 text-slate-200">
+                        <td colSpan="3" className="py-4 px-4 text-right uppercase text-xs tracking-wider text-slate-400">Total Keseluruhan:</td>
+                        <td className="py-4 px-4 text-right text-indigo-400">{formatCurrency(totalDebit)}</td>
+                        <td className="py-4 px-4 text-right text-indigo-400">{formatCurrency(totalCredit)}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+                  isBalanced ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' : 'bg-rose-950/40 border-rose-800/80 text-rose-300'
+                }`}>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs uppercase tracking-wider font-bold opacity-80">Live Balanced Indicator:</span>
+                      <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${isBalanced ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-slate-950'}`}>
+                        {isBalanced ? 'BALANCED' : 'NOT BALANCED'}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1 opacity-90">
+                      {isBalanced 
+                        ? 'Total debit dan total kredit sudah seimbang dan memenuhi standar validasi jurnal akuntansi.'
+                        : `Selisih nominal debit dan kredit: ${formatCurrency(diff)}. Pastikan total debit = total kredit.`}
+                    </p>
+                  </div>
+                  <div className="text-right text-xs opacity-80">
+                    <span>Jumlah Baris: {rows.length}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between pt-4 border-t border-slate-700/80 gap-4">
+                  <button
+                    onClick={handleReset}
+                    className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-sm font-medium transition-all cursor-pointer"
+                  >
+                    Reset / Muat Contoh Demo
+                  </button>
+
+                  <div className="flex items-center space-x-3">
+                    {voucher.status === 'DRAFT' && (
+                      <button
+                        onClick={handleSaveDraft}
+                        className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-medium transition-all shadow-md cursor-pointer"
+                      >
+                        Simpan Draft
+                      </button>
+                    )}
+
+                    <button
+                      onClick={handleSubmitPosted}
+                      disabled={!canSubmit}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-all ${
+                        canSubmit ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 cursor-pointer' : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
+                      }`}
+                    >
+                      Submit & Post Transaksi
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-200">Jejak Audit & Riwayat Pencatatan</h2>
+                  <p className="text-slate-400 text-xs mt-1">Transparansi penuh untuk kebutuhan auditor internal dan kepatuhan perusahaan.</p>
+                </div>
+                <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-xs font-semibold">
+                  Total Aktivitas: {auditLogs.length}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {auditLogs.map((log) => (
+                  <div key={log.id} className="p-4 rounded-xl bg-slate-900/60 border border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-slate-200 text-sm">{log.user}</span>
+                        <span className="px-2 py-0.5 bg-slate-800 text-indigo-300 text-xs font-mono rounded border border-slate-700">
+                          {log.action}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">{log.note}</p>
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono">
+                      <span>{log.timestamp}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
